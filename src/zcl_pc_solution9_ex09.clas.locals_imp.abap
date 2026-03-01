@@ -22,6 +22,9 @@ CLASS lcl_passenger_flight DEFINITION .
         airport_to_id   TYPE /dmo/airport_to_id,
         departure_time  TYPE /dmo/flight_departure_time,
         arrival_time    TYPE /dmo/flight_departure_time,
+        duration        TYPE i, "ampliamos la definición del tipo de estructura incluyendo
+        "el componente durantion en e atributo st_connections details
+        "a continuación actualizar método get_description
       END OF st_connection_details.
 
     TYPES
@@ -71,16 +74,18 @@ CLASS lcl_passenger_flight DEFINITION .
            END OF st_flights_buffer.
     CLASS-DATA: flights_buffer TYPE TABLE OF st_flights_buffer.
 
+
     DATA connection_details TYPE st_connection_details.
 
     TYPES:
       BEGIN OF st_connections_buffer,
-        carrier_id TYPE /dmo/carrier_id,
-        connection_id TYPE /dmo/connection_id,
+        carrier_id      TYPE /dmo/carrier_id,
+        connection_id   TYPE /dmo/connection_id,
         airport_from_id TYPE /dmo/airport_from_id,
-        airport_to_id TYPE /dmo/airport_to_id,
-        departure_time TYPE /dmo/flight_departure_time,
-        arrival_time TYPE /dmo/flight_departure_time,
+        airport_to_id   TYPE /dmo/airport_to_id,
+        departure_time  TYPE /dmo/flight_departure_time,
+        arrival_time    TYPE /dmo/flight_departure_time,
+        duration        TYPE i,   "incluimos componenente duración
       END OF st_connections_buffer.
 
     CLASS-DATA connections_buffer TYPE TABLE OF st_connections_buffer.
@@ -91,18 +96,40 @@ CLASS lcl_passenger_flight IMPLEMENTATION.
 
   METHOD class_constructor.
 
-  "lea todos los registros de la tabla de base de datos /LRN/CONNECTION en el atributo connections_buffer.
+    SELECT                          "leer en BD e incluir en TI
+      FROM /lrn/airport
+    FIELDS airport_id, timzone
+      INTO TABLE @DATA(airports).
 
-  SELECT
-        FROM /lrn/connection
-      FIELDS carrier_id, connection_id,
-            airport_from_id, airport_to_id,
-            departure_time, arrival_time
-    INTO TABLE @connections_buffer.
+    SELECT
+      FROM /lrn/connection
+    FIELDS carrier_id, connection_id,
+           airport_from_id, airport_to_id, departure_time, arrival_time
+      INTO TABLE @connections_buffer.
+
+    DATA(today) = cl_abap_context_info=>get_system_date(  ). "obtener fecha actual sistema
+
+    LOOP AT connections_buffer INTO DATA(connection). "recorrer cada conexión -> area de trabajo
+
+      CONVERT DATE today  " Convertir hora local a tiempo universal
+              TIME connection-departure_time
+              TIME ZONE airports[ airport_id = connection-airport_from_id ]-timzone
+              INTO UTCLONG DATA(departure_utclong).
+
+      CONVERT DATE today "Convertir hora local a tiempo universal
+              TIME connection-arrival_time
+              TIME ZONE airports[ airport_id = connection-airport_to_id ]-timzone
+              INTO UTCLONG DATA(arrival_utclong).
+
+      connection-duration = utclong_diff( high = arrival_utclong      "Calcular diferencia
+                                          low = departure_utclong
+                                          ) / 60.
+
+      MODIFY connections_buffer FROM connection TRANSPORTING duration. "Actualizar tabla interna"
+
+    ENDLOOP.
 
   ENDMETHOD.
-
-
 
   METHOD get_flights_by_carrier.
 
@@ -174,7 +201,6 @@ CLASS lcl_passenger_flight IMPLEMENTATION.
       ENDTRY.
 
 * Set connection details
-
 *      SELECT SINGLE
 *        FROM /lrn/connection
 *      FIELDS airport_from_id, airport_to_id, departure_time, arrival_time
@@ -182,10 +208,10 @@ CLASS lcl_passenger_flight IMPLEMENTATION.
 *         AND connection_id = @connection_id
 *        INTO @connection_details .
 
-
-    connection_details = CORRESPONDING #( connections_buffer[
-                         carrier_id = i_carrier_id connection_id = i_connection_id ] ).
-
+      connection_details = CORRESPONDING #( connections_buffer[
+                                                 carrier_id    = i_carrier_id
+                                                 connection_id = i_connection_id ]
+                                           ).
 
     ENDIF.
   ENDMETHOD.
@@ -201,14 +227,40 @@ CLASS lcl_passenger_flight IMPLEMENTATION.
 
   METHOD get_description.
 
-    APPEND |Flight { carrier_id } { connection_id } on { flight_date DATE = USER } | &&
-           |from { connection_details-airport_from_id } to { connection_details-airport_to_id } |
-           TO r_result.
-    APPEND |Planetype:      { planetype  } | TO r_result.
-    APPEND |Maximum Seats:  { seats_max  } | TO r_result.
-    APPEND |Occupied Seats: { seats_occ  } | TO r_result.
-    APPEND |Free Seats:     { seats_free } | TO r_result.
-    APPEND |Ticket Price:   { price CURRENCY = currency } { currency } | TO r_result.
+*    APPEND |Flight { carrier_id } { connection_id } on { flight_date DATE = USER } | &&
+*           |from { connection_details-airport_from_id } to { connection_details-airport_to_id } |
+*           TO r_result. " sustitúyala por una APPEND de una variable local del tipo STRING
+
+    DATA txt TYPE string.
+    txt = 'Flight &carrid& &connid& on &date& from &from& to &to&'(005). "frase completa en un único símbolo de texto  ç
+                                                                         "Enlace el literal de texto a un nuevo símbolo de texto
+    txt = replace( val = txt sub = '&carrid&' with = carrier_id ).
+    "REPLACE = Dentro del texto txt, busca la subcadena &carrid&
+    "y sustitúyela por el valor real de carrier_id.
+    txt = replace( val = txt sub = '&carrid&' with = carrier_id ).
+    txt = replace( val = txt sub = '&connid&' with = connection_id ).
+    txt = replace( val = txt sub = '&date&' with = |{ flight_date DATE = USER }| ).
+    txt = replace( val = txt sub = '&from&' with = connection_details-airport_from_id ).
+    txt = replace( val = txt sub = '&to&' with = connection_details-airport_to_id ).
+
+    APPEND txt TO r_result.
+
+
+*    APPEND |Planetype:      { planetype  } | TO r_result.
+*    APPEND |Maximum Seats:  { seats_max  } | TO r_result.
+*    APPEND |Occupied Seats: { seats_occ  } | TO r_result.
+*    APPEND |Free Seats:     { seats_free } | TO r_result.
+*    APPEND |Ticket Price:   { price CURRENCY = currency } { currency } | TO r_result.
+*    APPEND |Duration:       { connection_details-duration } minutes| TO r_result. "Actualización tras ampliar el atributo con duración
+
+
+     APPEND |{ 'Planetype:'(006) } { planetype } | TO r_result.
+     APPEND |{ 'Maximum Seats:'(007) } { seats_max } | TO r_result.
+     APPEND |{ 'Occupied Seats:'(008) } { seats_occ } | TO r_result.
+     APPEND |{ 'Free Seats:'(009) } { seats_free } | TO r_result.
+     APPEND |{ 'Ticket Price:'(010) } { price CURRENCY = currency } { currency } | TO r_result.
+     APPEND |{ 'Duration:'(011) } { connection_details-duration } { 'minutes'(012) }| TO r_result.
+
 
   ENDMETHOD.
 
@@ -228,8 +280,13 @@ CLASS lcl_cargo_flight DEFINITION .
     TYPES
        tt_flights TYPE STANDARD TABLE OF REF TO lcl_cargo_flight WITH DEFAULT KEY.
 
-    DATA carrier_id    TYPE /dmo/connection_id    READ-ONLY.
-    DATA connection_id TYPE /dmo/carrier_id       READ-ONLY.
+* wrong:
+*    DATA carrier_id    TYPE /dmo/connection_id    READ-ONLY.
+*    DATA connection_id TYPE /dmo/carrier_id       READ-ONLY.
+* correct:
+    DATA carrier_id    TYPE /dmo/carrier_id       READ-ONLY.
+    DATA connection_id TYPE /dmo/connection_id    READ-ONLY.
+
     DATA flight_date   TYPE /dmo/flight_date      READ-ONLY.
 
     METHODS constructor
@@ -331,8 +388,10 @@ CLASS lcl_cargo_flight IMPLEMENTATION.
           INTO CORRESPONDING FIELDS OF @flight_raw.
     ENDTRY.
 
-    carrier_id    = i_carrier_id.
-    connection_id = i_connection_id.
+*    carrier_id    =  EXACT #( i_carrier_id ).
+    carrier_id    =  i_carrier_id .
+*    connection_id =  EXACT #( i_connection_id ).
+    connection_id =  i_connection_id .
     flight_date   = i_flight_date.
 
     planetype = flight_raw-plane_type_id.
@@ -371,7 +430,9 @@ CLASS lcl_carrier DEFINITION .
 
   PUBLIC SECTION.
 
-    TYPES t_output TYPE c LENGTH 40.
+*    TYPES t_output TYPE c LENGTH 40.
+    TYPES t_output TYPE string.
+
     TYPES tt_output TYPE STANDARD TABLE OF t_output
                     WITH NON-UNIQUE DEFAULT KEY.
 
@@ -449,10 +510,15 @@ CLASS lcl_carrier IMPLEMENTATION.
 
   METHOD get_output.
 
-    APPEND |Carrier Name:       { me->name } | TO r_result.
-    APPEND |Passenger Flights:  { lines( passenger_flights ) } | TO r_result.
-    APPEND |Average free seats: { get_average_free_seats(  ) } | TO r_result.
-    APPEND |Cargo Flights:      { lines( cargo_flights     ) } | TO r_result.
+*    APPEND |Carrier Name:       { me->name } | TO r_result. ""Sustituir texto literal por literal incrustado
+*    APPEND |Passenger Flights:  { lines( passenger_flights ) } | TO r_result.
+*    APPEND |Average free seats: { get_average_free_seats(  ) } | TO r_result.
+*    APPEND |Cargo Flights:      { lines( cargo_flights     ) } | TO r_result.
+    APPEND |{ 'Carrier Name:'(001) } { me->name }                   | TO r_result. "texto literal incrustado +
+                               "Convertir el literal en símbolo de texto(001)
+    APPEND |{ 'Passenger Flights:'(002) } { lines( passenger_flights ) } | TO r_result.
+    APPEND |{ 'Average free seats:'(003) } { get_average_free_seats( ) } | TO r_result.
+    APPEND |{ 'Cargo Flights:'(004) } { lines( cargo_flights ) }         | TO r_result.
 
   ENDMETHOD.
 

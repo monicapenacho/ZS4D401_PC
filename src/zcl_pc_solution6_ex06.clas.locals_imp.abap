@@ -75,12 +75,12 @@ CLASS lcl_passenger_flight DEFINITION .
 
     TYPES:
       BEGIN OF st_connections_buffer,
-        carrier_id TYPE /dmo/carrier_id,
-        connection_id TYPE /dmo/connection_id,
+        carrier_id      TYPE /dmo/carrier_id,
+        connection_id   TYPE /dmo/connection_id,
         airport_from_id TYPE /dmo/airport_from_id,
-        airport_to_id TYPE /dmo/airport_to_id,
-        departure_time TYPE /dmo/flight_departure_time,
-        arrival_time TYPE /dmo/flight_departure_time,
+        airport_to_id   TYPE /dmo/airport_to_id,
+        departure_time  TYPE /dmo/flight_departure_time,
+        arrival_time    TYPE /dmo/flight_departure_time,
       END OF st_connections_buffer.
 
     CLASS-DATA connections_buffer TYPE TABLE OF st_connections_buffer.
@@ -91,18 +91,13 @@ CLASS lcl_passenger_flight IMPLEMENTATION.
 
   METHOD class_constructor.
 
-  "lea todos los registros de la tabla de base de datos /LRN/CONNECTION en el atributo connections_buffer.
-
-  SELECT
-        FROM /lrn/connection
-      FIELDS carrier_id, connection_id,
-            airport_from_id, airport_to_id,
-            departure_time, arrival_time
-    INTO TABLE @connections_buffer.
+    SELECT
+      FROM /lrn/connection
+    FIELDS carrier_id, connection_id,
+           airport_from_id, airport_to_id, departure_time, arrival_time
+      INTO TABLE @connections_buffer.
 
   ENDMETHOD.
-
-
 
   METHOD get_flights_by_carrier.
 
@@ -129,7 +124,6 @@ CLASS lcl_passenger_flight IMPLEMENTATION.
     ENDLOOP.
 
   ENDMETHOD.
-
 
   METHOD constructor.
 
@@ -162,7 +156,7 @@ CLASS lcl_passenger_flight IMPLEMENTATION.
       TRY.
           cl_exchange_rates=>convert_to_local_currency(
             EXPORTING
-              date              = flight_raw-flight_date
+              date              = i_flight_date
               foreign_amount    = flight_raw-price
               foreign_currency  = flight_raw-currency_code
               local_currency    = currency
@@ -174,7 +168,6 @@ CLASS lcl_passenger_flight IMPLEMENTATION.
       ENDTRY.
 
 * Set connection details
-
 *      SELECT SINGLE
 *        FROM /lrn/connection
 *      FIELDS airport_from_id, airport_to_id, departure_time, arrival_time
@@ -182,10 +175,10 @@ CLASS lcl_passenger_flight IMPLEMENTATION.
 *         AND connection_id = @connection_id
 *        INTO @connection_details .
 
-
-    connection_details = CORRESPONDING #( connections_buffer[
-                         carrier_id = i_carrier_id connection_id = i_connection_id ] ).
-
+      connection_details = CORRESPONDING #( connections_buffer[
+                                                 carrier_id    = i_carrier_id
+                                                 connection_id = i_connection_id ]
+                                           ).
 
     ENDIF.
   ENDMETHOD.
@@ -228,8 +221,10 @@ CLASS lcl_cargo_flight DEFINITION .
     TYPES
        tt_flights TYPE STANDARD TABLE OF REF TO lcl_cargo_flight WITH DEFAULT KEY.
 
-    DATA carrier_id    TYPE /dmo/connection_id    READ-ONLY.
-    DATA connection_id TYPE /dmo/carrier_id       READ-ONLY.
+*    DATA carrier_id    TYPE /dmo/connection_id    READ-ONLY.
+*    DATA connection_id TYPE /dmo/carrier_id       READ-ONLY.
+    DATA carrier_id    TYPE /dmo/carrier_id    READ-ONLY.
+    DATA connection_id TYPE /dmo/connection_id       READ-ONLY.
     DATA flight_date   TYPE /dmo/flight_date      READ-ONLY.
 
     METHODS constructor
@@ -331,6 +326,8 @@ CLASS lcl_cargo_flight IMPLEMENTATION.
           INTO CORRESPONDING FIELDS OF @flight_raw.
     ENDTRY.
 
+*    carrier_id    = EXACT #( i_carrier_id ). "exact > DUMP
+*    connection_id = EXACT #( i_connection_id ). "exact > DUMP
     carrier_id    = i_carrier_id.
     connection_id = i_connection_id.
     flight_date   = i_flight_date.
@@ -371,7 +368,7 @@ CLASS lcl_carrier DEFINITION .
 
   PUBLIC SECTION.
 
-    TYPES t_output TYPE c LENGTH 40.
+    TYPES t_output TYPE string.
     TYPES tt_output TYPE STANDARD TABLE OF t_output
                     WITH NON-UNIQUE DEFAULT KEY.
 
